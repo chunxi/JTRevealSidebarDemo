@@ -12,17 +12,22 @@
 #import <objc/runtime.h>
 
 @interface UIViewController (JTRevealSidebarV2Private)
-
-- (void)revealLeftSidebar:(BOOL)showLeftSidebar;
-- (void)revealRightSidebar:(BOOL)showRightSidebar;
+- (void)revealLeftSidebar:(BOOL)showLeftSidebar withAnimation:(RevealAnimation)animation;
+- (void)revealRightSidebar:(BOOL)showRightSidebar withAnimation:(RevealAnimation)animation;
 
 @end
 
 @implementation UIViewController (JTRevealSidebarV2)
 
 static char *revealedStateKey;
+const CGFloat RevealAnimationDuration = .3f;
+const CGFloat RevealNavigationSideBarWidth = 50.f;
 
-- (void)setRevealedState:(JTRevealedState)revealedState {
+- (void)setRevealedState:(JTRevealedState)revealedState{
+    [self setRevealedState:revealedState withAnimation:RevealAnimationNone];
+}
+
+- (void)setRevealedState:(JTRevealedState)revealedState withAnimation:(RevealAnimation)animation {
     
     JTRevealedState currentState = self.revealedState;
 
@@ -31,31 +36,25 @@ static char *revealedStateKey;
     switch (currentState) {
         case JTRevealedStateNo:
             if (revealedState == JTRevealedStateLeft) {
-                [self revealLeftSidebar:YES];
-            } else if (revealedState == JTRevealedStateRight) {
-                [self revealRightSidebar:YES];
+                [self revealLeftSidebar:YES withAnimation:animation];
             } else {
-                // Do Nothing
+                [self revealLeftSidebar:YES withAnimation:animation];
             }
             break;
         case JTRevealedStateLeft:
             if (revealedState == JTRevealedStateNo) {
-                [self revealLeftSidebar:NO];
-            } else if (revealedState == JTRevealedStateRight) {
-                [self revealLeftSidebar:NO];
-                [self revealRightSidebar:YES];
+                [self revealLeftSidebar:NO withAnimation:animation];
             } else {
-                [self revealLeftSidebar:YES];
+                [self revealLeftSidebar:NO withAnimation:animation];
+                [self revealRightSidebar:YES withAnimation:animation];
             }
             break;
         case JTRevealedStateRight:
             if (revealedState == JTRevealedStateNo) {
-                [self revealRightSidebar:NO];
-            } else if (revealedState == JTRevealedStateLeft) {
-                [self revealRightSidebar:NO];
-                [self revealLeftSidebar:YES];
+                [self revealRightSidebar:NO withAnimation:animation];
             } else {
-                [self revealRightSidebar:YES];
+                [self revealRightSidebar:NO withAnimation:animation];
+                [self revealLeftSidebar:YES withAnimation:animation];
             }
         default:
             break;
@@ -68,8 +67,6 @@ static char *revealedStateKey;
 
 - (CGAffineTransform)baseTransform {
     CGAffineTransform baseTransform;
-    
-    return self.view.transform;
     switch (self.interfaceOrientation) {
         case UIInterfaceOrientationPortrait:
             baseTransform = CGAffineTransformIdentity;
@@ -87,16 +84,7 @@ static char *revealedStateKey;
     return baseTransform;
 }
 
-// Converting the applicationFrame from UIWindow is founded to be always correct
-- (CGRect)applicationViewFrame {
-    CGRect appFrame = [[UIScreen mainScreen] applicationFrame];
-    CGRect expectedFrame = [self.view convertRect:appFrame fromView:nil];
-    return expectedFrame;
-}
-
 @end
-
-#define SIDEBAR_VIEW_TAG 10000
 
 @implementation UIViewController (JTRevealSidebarV2Private)
 
@@ -105,49 +93,92 @@ static char *revealedStateKey;
 }
 
 - (void)animationDidStop:(NSString *)animationID finished:(NSNumber *)finished context:(void *)context {
-    UIView *view = [self.view.superview viewWithTag:(int)context];
+    UIView *view = (UIView *)context;
     [view removeFromSuperview];
 }
 
-- (void)revealLeftSidebar:(BOOL)showLeftSidebar {
-
+- (void)revealLeftSidebar:(BOOL)showLeftSidebar withAnimation:(RevealAnimation)animation{
     id <JTRevealSidebarV2Delegate> delegate = [self selectedViewController].navigationItem.revealSidebarDelegate;
 
-    if ( ! [delegate respondsToSelector:@selector(viewForLeftSidebar)]) {
+    if (![delegate respondsToSelector:@selector(viewForLeftSidebar)]) {
         return;
     }
-
+    
     UIView *revealedView = [delegate viewForLeftSidebar];
-    revealedView.tag = SIDEBAR_VIEW_TAG;
-    CGFloat width = CGRectGetWidth(revealedView.frame);
-
+    [self.view.layer removeAllAnimations];
+    [revealedView.layer removeAllAnimations];
+    
+    __block CGRect main_frame = [[UIScreen mainScreen] applicationFrame];
     if (showLeftSidebar) {
         [self.view.superview insertSubview:revealedView belowSubview:self.view];
-        
-        [UIView beginAnimations:@"" context:nil];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], width, 0);
-        
-        self.view.frame = CGRectOffset(self.view.frame, width, 0);
-
+        if(animation != RevealAnimationNone){
+            [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], floorf(CGRectGetWidth(main_frame) - RevealNavigationSideBarWidth), 0);
+                /*CGRect bar_frame = revealedView.frame;
+                bar_frame.size.width = floorf(CGRectGetWidth(main_frame) - RevealNavigationSideBarWidth);
+                revealedView.frame = bar_frame;*/
+            }completion:^(BOOL finished){
+                if ([delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+                    [delegate sidebarDidChangeState];
+                }
+            }];
+        }
+        else{
+            self.view.transform = CGAffineTransformTranslate([self baseTransform], floorf(CGRectGetWidth(main_frame) - RevealNavigationSideBarWidth), 0);
+            if ([delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+                [delegate sidebarDidChangeState];
+            }
+        }
     } else {
-        [UIView beginAnimations:@"hideSidebarView" context:(void *)SIDEBAR_VIEW_TAG];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], -width, 0);
-        
-        self.view.frame = (CGRect){CGPointZero, self.view.frame.size};
-
-
-        [UIView setAnimationDidStopSelector:@selector(animationDidStop:finished:context:)];
-        [UIView setAnimationDelegate:self];
+        if(animation == RevealAnimationNone){
+            self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0); 
+            if ( [delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+                [delegate sidebarDidChangeState];
+            }
+        }
+        else if(animation == RevealAnimationOpenFullThenClose){
+            [UIView animateWithDuration:RevealAnimationDuration * .5f delay:.0f options:UIViewAnimationCurveEaseIn animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], CGRectGetWidth(main_frame), 0);
+                CGRect bar_frame = revealedView.frame;
+                bar_frame.size.width = floorf(CGRectGetWidth(main_frame));
+                revealedView.frame = bar_frame;
+            }completion:^(BOOL finished){
+                if(finished){
+                    if([delegate respondsToSelector:@selector(sidebarDidMoveAside)]){
+                        [delegate sidebarDidMoveAside];
+                    }
+                }
+                [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                    self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0); 
+                    /*CGRect bar_frame = revealedView.frame;
+                    bar_frame.size.width = floorf(CGRectGetWidth(main_frame) - RevealNavigationSideBarWidth);
+                    revealedView.frame = bar_frame;*/
+                }completion:^(BOOL finished){
+                    if(finished){
+                        [revealedView removeFromSuperview];
+                        if ( [delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+                            [delegate sidebarDidChangeState];
+                        }
+                    }
+                }];
+            }];
+        }
+        else{
+            [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0); 
+            }completion:^(BOOL finished){
+                if(finished){
+                    [revealedView removeFromSuperview];
+                    if ( [delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+                        [delegate sidebarDidChangeState];
+                    }
+                }
+            }];
+        }
     }
-    
-    NSLog(@"%@", NSStringFromCGAffineTransform(self.view.transform));
-
-
-    [UIView commitAnimations];
 }
 
-- (void)revealRightSidebar:(BOOL)showRightSidebar {
-
+- (void)revealRightSidebar:(BOOL)showRightSidebar withAnimation:(RevealAnimation)animation{
     id <JTRevealSidebarV2Delegate> delegate = [self selectedViewController].navigationItem.revealSidebarDelegate;
     
     if ( ! [delegate respondsToSelector:@selector(viewForRightSidebar)]) {
@@ -155,29 +186,49 @@ static char *revealedStateKey;
     }
 
     UIView *revealedView = [delegate viewForRightSidebar];
-    revealedView.tag = SIDEBAR_VIEW_TAG;
-    CGFloat width = CGRectGetWidth(revealedView.frame);
-    revealedView.frame = (CGRect){self.view.frame.size.width - width, revealedView.frame.origin.y, revealedView.frame.size};
-
+    __block CGRect main_frame = [[UIScreen mainScreen] applicationFrame];
+    
+    [self.view.layer removeAllAnimations];
+    [revealedView.layer removeAllAnimations];
     if (showRightSidebar) {
         [self.view.superview insertSubview:revealedView belowSubview:self.view];
 
-        [UIView beginAnimations:@"" context:nil];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], -width, 0);
-        
-        self.view.frame = CGRectOffset(self.view.frame, -width, 0);
+        if(animation == RevealAnimationNone){
+            self.view.transform = CGAffineTransformTranslate([self baseTransform], -floorf(CGRectGetWidth(main_frame) - 50.f), 0);
+        }
+        else{
+            [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], -floorf(CGRectGetWidth(main_frame) - RevealNavigationSideBarWidth), 0);
+            }completion:nil];
+            
+        }
     } else {
-        [UIView beginAnimations:@"hideSidebarView" context:(void *)SIDEBAR_VIEW_TAG];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], width, 0);
-        self.view.frame = (CGRect){CGPointZero, self.view.frame.size};
-        
-        [UIView setAnimationDidStopSelector:@selector(animationDidStop:finished:context:)];
-        [UIView setAnimationDelegate:self];
+        if(animation == RevealAnimationNone){
+            self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0);
+            [revealedView removeFromSuperview];
+        }
+        else if(animation == RevealAnimationOpenFullThenClose){
+            [UIView animateWithDuration:RevealAnimationDuration * .5f delay:.0f options:UIViewAnimationCurveEaseIn animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], -CGRectGetWidth(main_frame), 0);
+            }completion:^(BOOL finished){
+                [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                    self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0); 
+                }completion:^(BOOL finished){
+                    [revealedView removeFromSuperview];
+                }];
+            }];
+        }
+        else{
+            [UIView animateWithDuration:RevealAnimationDuration delay:.0f options:UIViewAnimationCurveEaseOut animations:^(){
+                self.view.transform = CGAffineTransformTranslate([self baseTransform], 0, 0); 
+            }completion:^(BOOL finished){
+                [revealedView removeFromSuperview];
+            }];
+        }
     }
-
-    NSLog(@"%@", NSStringFromCGAffineTransform(self.view.transform));
-    
-    [UIView commitAnimations];
+	if ( [delegate respondsToSelector:@selector(sidebarDidChangeState)]) {
+		[delegate sidebarDidChangeState];
+	}
 }
 
 @end

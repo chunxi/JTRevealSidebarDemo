@@ -7,21 +7,26 @@
  */
 
 #import <UIKit/UIKit.h>
-
+extern const CGFloat RevealAnimationDuration;
+extern const CGFloat RevealNavigationSideBarWidth;
 typedef enum {
     JTRevealedStateNo,
     JTRevealedStateLeft,
     JTRevealedStateRight,
 } JTRevealedState;
 
+typedef enum {
+    RevealAnimationNone,
+    RevealAnimationNormal,
+    RevealAnimationOpenFullThenClose
+} RevealAnimation;
+
 @interface UIViewController (JTRevealSidebarV2)
 
 @property (nonatomic, assign) JTRevealedState revealedState;
-//- (CGAffineTransform)baseTransform;       Not used currently
+- (void)setRevealedState:(JTRevealedState)revealedState withAnimation:(RevealAnimation)animation;
+- (CGAffineTransform)baseTransform;
 
-// Use applicationViewFrame to get the correctly calculated view's frame
-// for use as a reference to our sidebar's view 
-- (CGRect)applicationViewFrame;
 @end
 
 
